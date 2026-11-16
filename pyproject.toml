@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ptpipe"
+version = "0.1.0"
+description = "ptpipe: an agentic thermoplasmonics pipeline - COMSOL templates verified against independent Python references, from near field to device temperature"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Giuseppe Emanuele Lio" }]
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "matplotlib>=3.7", "pyyaml>=6"]
+
+[tool.setuptools]
+packages = ["ptpipe"]
