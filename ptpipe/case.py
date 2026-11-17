@@ -39,6 +39,8 @@ SCHEMA = {
         "h_np": ("float", None, "mesh size in the particles (nm); default R/4 (rod: b/4); <= gap/2 for clusters"),
         "h_surf": ("float", None, "mesh size on the particle surfaces only (nm); use for small gaps with h_np ~ R/4"),
         "el_per_lambda": ("float", 8, "mesh elements per wavelength in the medium (8 standard, 6 minimum, 12 convergence check)"),
+        "G_K": ("float", None, "interfacial thermal conductance metal/medium W/(m2 K) (Au/water ~1e8); none = continuous T"),
+        "T_boil": ("float", None, "boiling point of the medium (K) for the validity check; default 373.15 for water"),
         "h_gap": ("float", None, "mesh size inside local spheres around each narrow gap (nm); set by ptpipe.mesh plan (gap/3)"),
         "gap_ref": ("float", None, "gaps <= gap_ref (nm) get a gap sphere when h_gap is set; default R_min/2"),
         "gap_ball": ("float", 1.5, "gap sphere radius = gap/2 + gap_ball*sqrt(R_eff*gap) (capped at 0.8 R_eff)"),
@@ -218,7 +220,36 @@ def check(case):
         w0 = float(cfg.get("w0_mm", .5)); R = float(cfg.get("Rd_mm", 12.5)); nr = int(cfg.get("n_r", 250))
         if R / nr > w0 / 8:
             msgs.append(f"WARN radial element {R/nr*1e3:.0f} um > w0/8: increase n_r")
+    _check_temperature(case, cfg, T, msgs)
     return T, msgs
+
+
+def _check_temperature(case, cfg, T, msgs):
+    """Validity of the thermal assumptions: constant room-temperature properties, no phase change,
+    continuous temperature at the metal surface unless G_K is given."""
+    try:
+        pv = preview(case)
+    except Exception:
+        return
+    dT = pv.get("dT_at_lam_heat_K") or pv.get("dT_local_K")
+    if T == "PT_Particle" and "G_K" not in cfg:
+        if cfg.get("shape") == "cluster":
+            R = float(np.loadtxt(os.path.join(ROOT, "comsol", cfg["cluster_file"]), comments=("#", "%"), ndmin=2)[:, 3].min())
+        else:
+            R = float(cfg.get("b_rod", 10)) if cfg.get("shape") == "rod" else float(cfg.get("R_np", 20))
+        lk = float(cfg.get("k_med", 0.6)) / 1e8 * 1e9   # Kapitza length for a typical Au/water G = 1e8 W/m2K
+        msgs.append(f"INFO no interfacial conductance (G_K): the particle temperature is underestimated by "
+                    f"~l_K/R = {lk / R:.0%} for G = 1e8 W/m2K (medium temperature unaffected)")
+    if dT is None:
+        return
+    water = T == "PT_Particle" and abs(float(cfg.get("k_med", 0.6)) - 0.6) < 0.05
+    Tb = float(cfg.get("T_boil", 373.15 if water else 1e9))
+    if 293.15 + dT > Tb:
+        msgs.append(f"WARN predicted T = {293.15 + dT:.0f} K exceeds the boiling point of the medium ({Tb:.0f} K): "
+                    "phase change and convection are not modelled; lower the intensity")
+    if dT > 100:
+        msgs.append(f"WARN predicted rise {dT:.0f} K: optical and thermal properties are taken at room temperature "
+                    "(gold losses and conductivities change by several % per 100 K); treat the result as a first estimate")
 
 
 def preview(case):
@@ -245,7 +276,13 @@ def preview(case):
             P = np.loadtxt(os.path.join(ROOT, "comsol", cfg["cluster_file"]), comments=("#", "%"), ndmin=2)
             al = mie_dipole_polarizability(L, P[0, 3], eps(L), nm)
             se = np.array([cda(l, P[:, :3], a, nm)[0] for l, a in zip(L, al)])
-            out.update(reference="coupled dipoles (approximate)", N=len(P), peak_ext_nm=float(L[np.argmax(se)]), sigma_ext_peak_nm2=float(se.max()))
+            D = np.sqrt(((P[:, None, :3] - P[None, :, :3]) ** 2).sum(-1)); np.fill_diagonal(D, np.inf)
+            gmin = float((D - P[:, None, 3] - P[None, :, 3]).min()) if len(P) > 1 else np.inf
+            ok = gmin >= P[:, 3].min()
+            out.update(reference="coupled dipoles (approximate)", N=len(P), peak_ext_nm=float(L[np.argmax(se)]), sigma_ext_peak_nm2=float(se.max()),
+                       min_gap_nm=gmin, valid_as_final=bool(ok),
+                       note=None if ok else "gap < R: coupled dipoles are a preliminary estimate only (errors 13-100 %); "
+                                            "a full-wave run is required before reporting")
     elif T == "PT_Multilayer":
         L = lams(cfg.get("lams", "450:10:900"))
         toks = [t.strip().rsplit(":", 1) for t in cfg["layers"].split(",")]

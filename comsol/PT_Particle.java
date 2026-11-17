@@ -211,6 +211,12 @@ public class PT_Particle {
     model.component("comp1").selection("sel_med_in").set("entitydim", 3);
     model.component("comp1").selection("sel_med_in").set("add", new String[]{"sel_inner"});
     model.component("comp1").selection("sel_med_in").set("subtract", new String[]{"sel_np"});
+    model.component("comp1").selection().create("sel_all3", "Explicit");
+    model.component("comp1").selection("sel_all3").all();
+    model.component("comp1").selection().create("sel_med_all", "Difference");
+    model.component("comp1").selection("sel_med_all").set("entitydim", 3);
+    model.component("comp1").selection("sel_med_all").set("add", new String[]{"sel_all3"});
+    model.component("comp1").selection("sel_med_all").set("subtract", new String[]{"sel_np"});
     ball(model, "sel_sca_out", 2, 0, 0, 0, "r_sca*1.001", "");
     ball(model, "sel_sca_in", 2, 0, 0, 0, "r_sca*0.999", "");
     model.component("comp1").selection().create("sel_sca", "Difference");
@@ -306,6 +312,49 @@ public class PT_Particle {
     model.component("comp1").physics("ht").create("temp1", "TemperatureBoundary", 2);
     model.component("comp1").physics("ht").feature("temp1").selection().named("sel_ext");
     model.component("comp1").physics("ht").feature("temp1").set("T0", "T0");
+    // optional interfacial thermal conductance (Kapitza) on the metal/medium boundaries: resistive thin
+    // layer of thickness d_K and conductivity G_K*d_K (R = 1/G_K). Property names are dumped to the log
+    // and the result is gated against the exact sphere solution (ptpipe.thermal.dT_sphere_kapitza).
+    if (cfg.containsKey("G_K")) {
+      model.param().set("G_K", cfg.get("G_K") + "[W/(m^2*K)]", "Interfacial thermal conductance");
+      model.param().set("d_K", "1[nm]", "Thickness of the equivalent resistive layer");
+      model.component("comp1").selection().create("sel_npA", "Adjacent");
+      model.component("comp1").selection("sel_npA").set("input", new String[]{"sel_np"});
+      model.component("comp1").selection().create("sel_medA", "Adjacent");
+      model.component("comp1").selection("sel_medA").set("input", new String[]{"sel_med_all"});
+      model.component("comp1").selection().create("sel_if", "Intersection");
+      model.component("comp1").selection("sel_if").set("entitydim", 2);
+      model.component("comp1").selection("sel_if").set("input", new String[]{"sel_npA", "sel_medA"});
+      try { log.println("Selection sel_if: " + Arrays.toString(model.component("comp1").selection("sel_if").entities(2))); } catch (Exception e) { }
+      String ft = null;
+      for (String type : new String[]{"ThinLayer", "ThermalContact"}) {
+        try { model.component("comp1").physics("ht").create("kap", type, 2); ft = type; break; }
+        catch (Exception e) { log.println("Kapitza: " + type + " not available (" + e.getMessage() + ")"); }
+      }
+      if (ft != null) {
+        model.component("comp1").physics("ht").feature("kap").selection().named("sel_if");
+        // COMSOL 6.4 (dump of the first run): ThinLayer, LayerType = Resistive, ThermalResistanceType =
+        // LayerProperties, thickness ds, conductivity ks with ks_mat (from_mat by default: "Undefined material
+        // property 'ks'"), rhos/Cp_s likewise; set all to user-defined values (rho, Cp unused in steady state)
+        String[][] tries = {{"LayerType", "Resistive"}, {"ThermalResistanceType", "LayerProperties"}, {"ds", "d_K"},
+                            {"ks_mat", "userdef"}, {"rhos_mat", "userdef"}, {"rhos", "1000"}, {"Cp_s_mat", "userdef"}, {"Cp_s", "1000"}};
+        for (String[] kv : tries) {
+          try { model.component("comp1").physics("ht").feature("kap").set(kv[0], kv[1]); log.println("Kapitza " + ft + ": set " + kv[0] + " = " + kv[1]); }
+          catch (Exception e) { }
+        }
+        try { model.component("comp1").physics("ht").feature("kap").set("ks", new String[]{"G_K*d_K", "0", "0", "0", "G_K*d_K", "0", "0", "0", "G_K*d_K"}); log.println("Kapitza: ks set as tensor"); }
+        catch (Exception e) {
+          try { model.component("comp1").physics("ht").feature("kap").set("ks", "G_K*d_K"); log.println("Kapitza: ks set as scalar"); }
+          catch (Exception e2) { log.println("WARN Kapitza ks: " + e2.getMessage()); }
+        }
+        try {
+          for (String q : model.component("comp1").physics("ht").feature("kap").properties()) {
+            String v; try { v = model.component("comp1").physics("ht").feature("kap").getString(q); } catch (Exception e) { v = "(array)"; }
+            log.println("kap property " + q + " = " + v);
+          }
+        } catch (Exception e) { log.println("WARN kap dump: " + e.getMessage()); }
+      }
+    }
 
     // ------------------------------------------------------------------ mesh
     model.component("comp1").mesh().create("mesh1");

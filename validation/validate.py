@@ -84,6 +84,8 @@ def particle(case, cfg):
         if shape == "sphere":
             R = float(cfg["R_np"]); ref = mie(lam, R, e, nm); lab = "Mie"
             dT_ref = P / (4 * np.pi * k * R * 1e-9) * (1 - R * 1e-9 / Rth)
+            if "G_K" in cfg:   # interfacial (Kapitza) conductance: exact extra jump P/(4 pi R^2 G)
+                dT_ref += P / (4 * np.pi * (R * 1e-9) ** 2 * float(cfg["G_K"]))
             exact = True
         else:
             a, b = float(cfg["a_rod"]), float(cfg["b_rod"])
@@ -212,6 +214,16 @@ def device(case, cfg):
                err_dT_edges_info=err_edge, err_dTmax=float(dTc.max() / dT_fv.max() - 1),
                budget_residual_comsol=float(np.max(abs(res[on])) / (A * P)), budget_residual_FV=float(np.max(abs(bud[:, 1] - bud[:, 2:6].sum(1))) / (A * P)))
     out["thermal_pass"] = bool(err <= TOL["device"] and out["budget_residual_comsol"] <= TOL["budget"])
+    # information: photothermal efficiency from the lumped model (Roper) applied to the simulated traces.
+    # In the model all absorbed power becomes heat (eta = 1): the deviation is the error of the lumped analysis.
+    try:
+        from ptpipe.thermal import eta_lumped
+        mc = np.pi * Rd ** 2 * (rs * cs * Hg + rt * ct * Hs)
+        E = np.concatenate([[0], np.cumsum(0.5 * (ts[1:, 4] + ts[:-1, 4]) * np.diff(tc))])
+        out["eta_lumped_peak_T"] = eta_lumped(tc, dTc, A * P, mc, toff)["eta"]       # camera maximum
+        out["eta_lumped_mean_T"] = eta_lumped(tc, E / mc, A * P, mc, toff)["eta"]    # volume average (not measurable)
+    except Exception as ex:
+        out["eta_lumped_info"] = f"n/a ({ex})"
     fig, ax = plt.subplots(1, 2, figsize=(7.4, 2.9))
     ax[0].plot(t, dT_fv, color=C[1], label="ptpipe FV"); ax[0].plot(tc[::20], dTc[::20], "o", ms=3, color=C[0], label="COMSOL")
     ax[0].set(xlabel="t (s)", ylabel=r"$\Delta T$ top centre (K)", title=f"{case}: max dev. {100*err:.2f} % (edges excluded)"); ax[0].legend()
@@ -223,11 +235,9 @@ def device(case, cfg):
 
 
 def kind_of(case):
-    if case.startswith("mim_device") or case.startswith("device_"):
-        return device
-    if case.startswith("mim_") or case.startswith("stack_"):
-        return multilayer
-    return particle
+    from ptpipe.case import template_of
+    T = template_of(read_cfg(case))
+    return {"PT_Device": device, "PT_Multilayer": multilayer}.get(T, particle)
 
 
 if __name__ == "__main__":

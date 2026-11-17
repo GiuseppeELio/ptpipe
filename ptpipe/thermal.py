@@ -277,3 +277,30 @@ def compact_patch_on_sphere(N, R_np, R_template, gap, n_candidates=20000):
             if len(pts) == N:
                 break
     return np.array(pts)
+
+
+def dT_sphere_kapitza(P_abs, R, k_med, G, R_th=np.inf):
+    """Temperature rise of a sphere (uniform inside) with an interfacial thermal conductance G (W/m^2/K):
+    exact steady solution, P/(4 pi k R)(1 - R/R_th) + P/(4 pi R^2 G). The second term is the jump at the
+    interface; the temperature of the medium (and therefore collective heating) does not depend on G."""
+    return P_abs / (4 * np.pi * k_med * R) * (1 - R / R_th) + P_abs / (4 * np.pi * R ** 2 * G)
+
+
+def kapitza_length(k_med, G):
+    """l_K = k/G: the interface matters when l_K is not small compared with the particle radius."""
+    return k_med / G
+
+
+def eta_lumped(t, dT, P_abs, mc, t_off, t_end=None):
+    """Photothermal conversion efficiency from the lumped (single time constant) model of Roper et al.:
+    tau from an exponential fit of the cooling after t_off, hS = m c_p / tau, eta = hS dT(t_off) / P_abs.
+    When the absorbed power is known exactly (as in a simulation, where eta = 1 by construction), the
+    returned value measures the error of the lumped analysis applied to that temperature trace."""
+    from scipy.optimize import curve_fit
+    t = np.asarray(t); dT = np.asarray(dT)
+    i0 = np.argmin(abs(t - t_off)) - 1
+    m = (t > t_off + 0.2) & (t <= (t_end if t_end else t.max()))
+    f = lambda tt, a, tau, c: a * np.exp(-(tt - t_off) / tau) + c
+    p, _ = curve_fit(f, t[m], dT[m], p0=(dT[i0], 10.0, 0.0), maxfev=20000)
+    hS = mc / p[1]
+    return dict(tau_cool=float(p[1]), hS=float(hS), dT_off=float(dT[i0]), eta=float(hS * dT[i0] / P_abs))

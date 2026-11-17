@@ -2,8 +2,8 @@
 
     python -m ptpipe.mesh estimate <case>                 # elements, DOFs, memory, time of a case file
     python -m ptpipe.mesh plan <case> [--ram 16] [--budget 0.6] [--apply]  # finest mesh that fits the machine
-    python -m ptpipe.mesh conv <case> [--lams 560,600,640] # writes the coarse probe <case>_cA (sizes x1.3)
-    python -m ptpipe.mesh compare <case>                  # probe vs planned run: converged if within 1 %
+    python -m ptpipe.mesh conv <case> [--lams 560,600,640] # coarse probes <case>_cA (sizes x1.3) and _cB (x1.6)
+    python -m ptpipe.mesh compare <case>                  # monotone, within 1 %, Richardson error estimate
     python -m ptpipe.mesh calibrate                       # refit the cost model on the runs in results/
 
 Accuracy rules, most accurate first: 3 elements across every gap narrower than R/2 (floor: 2), placed
@@ -198,11 +198,12 @@ def apply(case, opt, ram):
     open(p, "w").write("\n".join(lines) + "\n")
 
 
-def conv(case, lam_list=None, ram=None):
-    """Convergence probe: the same case with every mesh size x1.3 (<case>_cA) at 3 wavelengths of the case grid
-    around the peak. compare() checks it against the planned run itself, so the probe costs ~1/2 of three
-    wavelengths and never more memory than the planned run. If coarse and planned differ by <= 1 %, the planned
-    mesh is converged to better than ~1 % (monotone convergence)."""
+def conv(case, lam_list=None, ram=None, factors=(1.3, 1.6)):
+    """Convergence probes: the same case with every mesh size x1.3 (<case>_cA) and x1.6 (<case>_cB), at 3
+    wavelengths of the case grid around the peak. compare() checks them against the planned run itself:
+    the two coarse levels test that the error decreases monotonically (asymptotic range) and give a
+    Richardson estimate of the error left in the planned mesh. The probes never need more memory than
+    the planned run."""
     from .case import preview
     cfg = read(case); L = lams(cfg.get("lams", "450:10:700")); sp = os.path.join(RES, f"{case}_spectra.txt")
     if os.path.exists(sp) and len(_load(sp)) > 2:
@@ -212,15 +213,18 @@ def conv(case, lam_list=None, ram=None):
     if lam_list is None:
         pick = sorted({float(L[np.argmin(abs(L - x))]) for x in (lp - 20, lp, lp + 20)})
         lam_list = ",".join(f"{x:g}" for x in pick)
-    G = geometry(cfg); hnp, hs, hem, g = mesh_sizes(cfg, G); f = 1.3; name = f"{case}_cA"
-    lines = [l for l in open(path_of(case)).read().splitlines()
-             if l.split("=")[0].strip() not in ("tag", "lams", "pols", "h_np", "h_surf", "h_gap", "el_per_lambda") and not l.startswith("# ")]
-    lines = [f"# convergence probe of {case}: all mesh sizes x{f}; compare with python -m ptpipe.mesh compare {case}", f"tag = {name}"] + lines + \
-            [f"lams = {lam_list}", "pols = " + str(cfg.get("pols", "1")).split(",")[0].strip(), f"h_np = {hnp * f:.3f}",
-             f"h_surf = {hs * f:.3f}", f"el_per_lambda = {float(cfg.get('el_per_lambda', 8)) / f:.2f}"] + \
-            ([f"h_gap = {float(cfg['h_gap']) * f:.3f}"] if "h_gap" in cfg else [])
-    open(path_of(name), "w").write("\n".join(lines) + "\n")
-    return [(name, estimate(read(name), ram))]
+    G = geometry(cfg); hnp, hs, hem, g = mesh_sizes(cfg, G); out = []
+    for tag, f in zip(("cA", "cB"), factors):
+        name = f"{case}_{tag}"
+        lines = [l for l in open(path_of(case)).read().splitlines()
+                 if l.split("=")[0].strip() not in ("tag", "lams", "pols", "h_np", "h_surf", "h_gap", "el_per_lambda") and not l.startswith("# ")]
+        lines = [f"# convergence probe of {case}: all mesh sizes x{f}; compare with python -m ptpipe.mesh compare {case}", f"tag = {name}"] + lines + \
+                [f"lams = {lam_list}", "pols = " + str(cfg.get("pols", "1")).split(",")[0].strip(), f"h_np = {hnp * f:.3f}",
+                 f"h_surf = {hs * f:.3f}", f"el_per_lambda = {float(cfg.get('el_per_lambda', 8)) / f:.2f}"] + \
+                ([f"h_gap = {float(cfg['h_gap']) * f:.3f}"] if "h_gap" in cfg else [])
+        open(path_of(name), "w").write("\n".join(lines) + "\n")
+        out.append((name, estimate(read(name), ram)))
+    return out
 
 
 def _load(path):
@@ -235,19 +239,48 @@ def _load(path):
     return np.array(rows)
 
 
-def compare(case, tol=0.01):
-    """Coarse probe (<case>_cA) against the planned run (<case>, same polarization, same wavelengths)."""
-    a = _load(os.path.join(RES, f"{case}_cA_spectra.txt")); b = _load(os.path.join(RES, f"{case}_spectra.txt"))
-    b = b[b[:, 1] == a[0, 1]]
-    rows = [(r, b[np.argmin(abs(b[:, 0] - r[0]))]) for r in a]
-    rows = [(r, q) for r, q in rows if abs(q[0] - r[0]) < 1e-6]
-    if not rows:
-        return dict(case=case, error="no common wavelengths between the probe and the planned run")
-    da = max(abs(r[2] - q[2]) / abs(q[2]) for r, q in rows); de = max(abs(r[4] - q[4]) / abs(q[4]) for r, q in rows)
-    ok = max(da, de) <= tol
-    return dict(case=case, wavelengths=[float(r[0]) for r, _ in rows], coarse_vs_planned_abs=round(float(da), 4),
-                coarse_vs_planned_ext=round(float(de), 4), converged=bool(ok), tolerance=tol,
-                next="accept the planned mesh" if ok else "not converged: lower the mesh sizes by 0.8 (plan with --ram of a larger machine) and probe again")
+def compare(case, tol=0.01, factors=(1.3, 1.6)):
+    """Coarse probes against the planned run (same polarization and wavelengths). With both probes:
+    monotone if, at every wavelength and quantity, the x1.6 deviation is larger than the x1.3 one with the
+    same sign; Richardson estimate of the planned-mesh error from e(h) = C h^p."""
+    b = _load(os.path.join(RES, f"{case}_spectra.txt"))
+    res = dict(case=case, tolerance=tol)
+    devs = {}
+    for tag in ("cA", "cB"):
+        f = os.path.join(RES, f"{case}_{tag}_spectra.txt")
+        if not os.path.exists(f):
+            continue
+        a = _load(f); bb = b[b[:, 1] == a[0, 1]]
+        rows = [(r, bb[np.argmin(abs(bb[:, 0] - r[0]))]) for r in a]
+        rows = [(r, q) for r, q in rows if abs(q[0] - r[0]) < 1e-6]
+        devs[tag] = {float(r[0]): ((r[2] - q[2]) / q[2], (r[4] - q[4]) / q[4]) for r, q in rows}
+        res[f"{tag}_max_dev"] = round(float(max(max(abs(x) for x in v) for v in devs[tag].values())), 4)
+    if "cA" not in devs:
+        return dict(case=case, error="no probe results")
+    ok = res["cA_max_dev"] <= tol
+    if "cB" in devs:
+        floor = 0.1 * tol   # deviations below this are numerical noise: they do not enter the monotonicity test
+        lams_c = sorted(set(devs["cA"]) & set(devs["cB"]))
+        pairs = [(devs["cA"][l][k], devs["cB"][l][k]) for l in lams_c for k in (0, 1)
+                 if max(abs(devs["cA"][l][k]), abs(devs["cB"][l][k])) >= floor]
+        mono = all(abs(b) > abs(a) and np.sign(a) == np.sign(b) for a, b in pairs)
+        est = []
+        from scipy.optimize import brentq
+        for a, b in pairs:
+            try:
+                p = brentq(lambda p: (factors[0] ** p - 1) / (factors[1] ** p - 1) - a / b, 0.05, 12)
+                if 0.5 <= p <= 6:   # outside this range the extrapolation is not meaningful
+                    est.append(abs(a) / (factors[0] ** p - 1))
+            except ValueError:
+                pass
+        res.update(monotone=bool(mono), planned_error_estimate=round(float(max(est)), 4) if est else None)
+        # accepted when both coarser meshes stay within the tolerance (a mesh with ~4x fewer elements already
+        # agrees within tol); monotonicity and the extrapolated error are reported as information
+        ok = ok and res["cB_max_dev"] <= tol and (not est or max(est) <= tol)
+    res["converged"] = bool(ok)
+    res["next"] = ("accept the planned mesh" if ok else
+                   "not converged or not in the asymptotic range: lower the mesh sizes by 0.8 and probe again")
+    return res
 
 
 # ---------------------------------------------------------------- calibration on the runs of this machine

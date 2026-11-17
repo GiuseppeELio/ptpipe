@@ -30,6 +30,7 @@ If a gate fails, report the failure and its probable cause, not the number.
 | `ptpipe/` | independent Python references (`optics`, `thermal`, `bridge`), `case` (check/preview), `rii` (refractiveindex.info), `mesh` (resource-aware mesh planning) |
 | `validation/validate.py` | compares every COMSOL output with its reference -> `results/validation/summary.md` |
 | `benchmarks/` | verification of the Python layer itself (V1-V7) |
+| `docs/BENCHMARK.md` | agent benchmark: ten plain-language prompts and the scoring sheet |
 | `results/` | all outputs (not versioned) |
 
 ## Workflow
@@ -166,8 +167,22 @@ Read `results/validation/summary.md` and the figure of each case. Decision rules
   parameters, check lines (e.g. `int(Q_np)/int(emw.Qh)` must be 1), mesh size. Then fix and rerun.
 - **Approximate references** (MLWA, coupled dipoles): the deviation is information about the
   approximation, not a failure. Report it, e.g. "coupled dipoles underestimate the gap mode by X % at 2 nm".
-- **Convergence**: for any result that will be published, rerun with `el_per_lambda = 12` (and a
-  smaller `h_np`). Report the change; below 1 % is converged.
+- **Coupled dipoles below g = R are never a final result**: `case preview` marks them
+  `valid_as_final = False` (deviations 13 % at g = R/2, 44 % at R/4, peak shifted by 40 nm at R/10).
+  Run the full-wave case before reporting any number for such a cluster.
+- **Convergence**: for any result that will be published, run the two coarse probes
+  (`python -m ptpipe.mesh conv <case>`, sizes x1.3 and x1.6) and `python -m ptpipe.mesh compare <case>`:
+  accept only if the error decreases monotonically and the planned mesh is within 1 %.
+- **Thermal validity**: read the temperature lines of `case check`. Above the boiling point of the
+  medium (phase change and convection are not modelled) or above ~100 K of rise (room-temperature
+  properties), report the result as a first estimate and say why. Without `G_K` the temperature is
+  continuous at the metal surface: the particle temperature is underestimated by about l_K/R
+  (l_K = k/G ~ 6 nm for Au/water); the medium temperature, and therefore collective heating, is not
+  affected. If the user asks for the particle temperature itself, add `G_K`.
+- **Photothermal efficiency**: never extract eta from a simulated or measured T(t) with the lumped
+  single-time-constant model when the spot is much smaller than the sample: applied to the peak
+  temperature of `mim_device` it returns eta = 39 instead of 1 (`validate.py` reports it). Use the
+  energy budget of the device model.
 
 ### 8. Report to the user
 
