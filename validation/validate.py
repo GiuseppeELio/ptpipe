@@ -97,6 +97,7 @@ def particle(case, cfg):
                    peak_comsol_nm=float(lam[np.argmax(sp[:, 2])]), peak_ref_nm=float(lam[np.argmax(ref[2])]),
                    reference_exact=exact)
         out["optics_pass"] = bool(max(e_abs, e_ext) <= TOL["optics_exact"]) if exact else None
+        out["peak_height_ratio_abs"] = float(sp[:, 2].max() / ref[2].max())
         out.update(dT_comsol=float(dTmax), dT_ref=float(dT_ref), err_dT=float(dTmax / dT_ref - 1),
                    thermal_pass=bool(abs(dTmax / dT_ref - 1) <= TOL["thermal"]))
         ax[1].bar([0, 1], [dTmax, dT_ref], color=[C[0], C[1]]); ax[1].set_xticks([0, 1], ["COMSOL", "analytic"])
@@ -120,7 +121,12 @@ def particle(case, cfg):
         G = 1 / (4 * np.pi * k * d); np.fill_diagonal(G, 1 / (4 * np.pi * k * R0))
         dT_sup = G @ Q - Q.sum() / (4 * np.pi * k * Rth)
         e = pt[:, 6] / dT_sup - 1
-        out.update(dT_particles_max_rel_err=float(np.max(abs(e))), thermal_pass=bool(np.max(abs(e)) <= TOL["thermal"]))
+        dmin = np.sqrt(((xyz[:, None] - xyz[None]) ** 2).sum(-1)); np.fill_diagonal(dmin, np.inf)
+        gap = float((dmin - Rs[:, None] - Rs[None, :]).min())
+        # point-source superposition is exact only for well-separated particles: gate if gap >= R
+        exact_th = gap >= Rs.min()
+        out.update(min_gap_nm=gap, dT_particles_max_rel_err=float(np.max(abs(e))), thermal_reference_exact=bool(exact_th),
+                   thermal_pass=bool(np.max(abs(e)) <= TOL["thermal"]) if exact_th else None)
         ax[1].plot(dT_sup, pt[:, 6], "o", color=C[0]); m = [0, max(dT_sup.max(), pt[:, 6].max()) * 1.05]
         ax[1].plot(m, m, "k--", lw=0.7)
         ax[1].set(xlabel=r"superposition $\Delta T_i$ (K)", ylabel=r"COMSOL $\Delta T_i$ (K)", title=f"max deviation {100*np.max(abs(e)):.2f} %")
@@ -180,9 +186,9 @@ def device(case, cfg):
     f = lambda k, d: float(cfg.get(k, d))
     A, P, w = f("A_abs", 0.88), f("P_inc_W", 0.2), f("w0_mm", 0.5) * 1e-3
     ton, toff, tstop, dto = f("t_on", 2), f("t_off", 122), f("t_stop", 242), f("dt_out", 0.1)
-    Rd, Hg, Hs = f("Rd_mm", 12.5) * 1e-3, f("d_sub_mm", 1) * 1e-3, f("d_st_nm", 230) * 1e-9
+    Rd, Hg, Hs = f("Rd_mm", 12.5) * 1e-3, f("d_sub_mm", 1) * 1e-3, f("d_st_nm", 215) * 1e-9
     ks, rs, cs = f("k_sub", 1.38), f("rho_sub", 2203), f("cp_sub", 703)
-    kt, rt, ct = f("k_st", 168.6), f("rho_st", 15000), f("cp_st", 200)
+    kt, rt, ct = f("k_st", 168.6), f("rho_st", 11348), f("cp_st", 181)
     bc = dict(top=dict(type="conv", h=f("h_top", 10), eps=f("emis", .9)), bottom=dict(type="conv", h=f("h_bot", 10), eps=f("emis", .9)),
               side=dict(type="conv", h=f("h_edge", 10), eps=f("emis", .9)))
     re_ = graded(0, Rd, w / 25, 1.07)

@@ -171,12 +171,12 @@ A_stack = float(o["A"])
 P_inc, wl = 0.2, 0.5e-3
 P_abs = A_stack * P_inc
 t_on, t_off, t_end, dt = 2.0, 122.0, 242.0, 0.05
-Rd, Hg, Hs = 12.5e-3, 1.0e-3, 230e-9          # glass slide radius, thickness; stack thickness
+Rd, Hg, Hs = 12.5e-3, 1.0e-3, 215e-9          # glass slide radius, thickness; stack thickness
 re = graded(0, Rd, wl / 25, 1.07)
 zg = np.sort(Hg - graded(0, Hg, 2e-6, 1.25))
 ze = np.concatenate([zg, Hg + np.linspace(0, Hs, 5)[1:]])
-kst = (15 * 314 + 100 * 1.4 + 100 * 314) / 215    # in-plane-weighted stack conductivity (approx.)
-props = lambda R, Z: (np.where(Z > Hg, kst, kg), np.where(Z > Hg, 15000, 2203), np.where(Z > Hg, 200, 703))
+kst = (115 * 314 + 100 * 1.38) / 215    # thickness-weighted in-plane stack conductivity
+props = lambda R, Z: (np.where(Z > Hg, kst, kg), np.where(Z > Hg, 11348, 2203), np.where(Z > Hg, 181, 703))
 bc = dict(top=dict(type="conv", h=10.0, eps=0.9), bottom=dict(type="conv", h=10.0, eps=0.9),
           side=dict(type="conv", h=10.0, eps=0.9))
 S5 = AxiSolver(re, ze, props, bc)

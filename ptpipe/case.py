@@ -37,7 +37,14 @@ SCHEMA = {
         "rho_np": ("float", 19300, "particle density"),
         "cp_np": ("float", 129, "particle heat capacity"),
         "h_np": ("float", None, "mesh size in the particles (nm); default R/4 (rod: b/4); <= gap/2 for clusters"),
-        "el_per_lambda": ("float", 8, "mesh elements per wavelength in the medium (8 standard, 12 convergence check)"),
+        "h_surf": ("float", None, "mesh size on the particle surfaces only (nm); use for small gaps with h_np ~ R/4"),
+        "el_per_lambda": ("float", 8, "mesh elements per wavelength in the medium (8 standard, 6 minimum, 12 convergence check)"),
+        "h_gap": ("float", None, "mesh size inside local spheres around each narrow gap (nm); set by ptpipe.mesh plan (gap/3)"),
+        "gap_ref": ("float", None, "gaps <= gap_ref (nm) get a gap sphere when h_gap is set; default R_min/2"),
+        "gap_ball": ("float", 1.5, "gap sphere radius = gap/2 + gap_ball*sqrt(R_eff*gap) (capped at 0.8 R_eff)"),
+        "hgrad": ("float", 1.4, "maximum growth rate of the mesh (1.4 standard; 1.6 when memory is short)"),
+        "em_margin": ("float", 0.35, "distance between the integration sphere and the PML, in units of lam_max/n_m"),
+        "pml_lambda": ("float", 0.4, "PML thickness in units of lam_max/n_m"),
         "R_th_factor": ("float", 100, "thermal domain radius / outer PML radius"),
     },
     "PT_Multilayer": {
@@ -59,8 +66,8 @@ SCHEMA = {
         "dt_out": ("float", 0.1, "output step (s)"), "dt_smooth": ("float", 0.05, "on/off smoothing (s)"),
         "Rd_mm": ("float", 12.5, "sample radius (mm)"), "d_sub_mm": ("float", 1.0, "substrate thickness (mm)"),
         "k_sub": ("float", 1.38, "substrate k"), "rho_sub": ("float", 2203, "substrate rho"), "cp_sub": ("float", 703, "substrate cp"),
-        "d_st_nm": ("float", 230, "absorbing stack thickness (nm)"),
-        "k_st": ("float", 168.6, "stack in-plane k (thickness-weighted)"), "rho_st": ("float", 15000, ""), "cp_st": ("float", 200, ""),
+        "d_st_nm": ("float", 215, "absorbing stack thickness (nm)"),
+        "k_st": ("float", 168.6, "stack in-plane k (thickness-weighted)"), "rho_st": ("float", 11348, "stack density (thickness-weighted)"), "cp_st": ("float", 181, "stack heat capacity (mass-weighted)"),
         "h_top": ("float", 10, "convection top W/(m2 K)"), "h_bot": ("float", 10, ""), "h_edge": ("float", 10, ""),
         "emis": ("float", 0.9, "emissivity of all external surfaces"),
         "n_st": ("int", 2, "elements across the stack"), "n_sub": ("int", 40, "elements across the substrate"),
@@ -171,13 +178,22 @@ def check(case):
                     msgs.append(f"ERROR overlapping particles (min gap {gap:.2f} nm)")
                 elif gap < 1:
                     msgs.append(f"WARN min gap {gap:.2f} nm: below ~1 nm classical local optics is questionable (quantum/nonlocal effects)")
-                h = float(cfg.get("h_np", P[:, 3].min() / 4))
+                h = float(cfg.get("h_gap", cfg.get("h_surf", cfg.get("h_np", P[:, 3].min() / 4))))
                 if len(P) > 1 and h > gap / 2:
-                    msgs.append(f"WARN h_np = {h} nm > gap/2 = {gap/2:.2f} nm: the gap field will be under-resolved")
+                    msgs.append(f"WARN gap mesh {h} nm > gap/2 = {gap/2:.2f} nm: the gap field will be under-resolved "
+                                f"(run: python -m ptpipe.mesh plan {cfg.get('tag', '<case>')})")
                 if len(P) > 30:
                     msgs.append(f"WARN {len(P)} particles: 3D FEM will be heavy; consider the coupled-dipole preview first")
-        nrun = len(L) * len(cfg.get("pols", "1").split(","))
-        msgs.append(f"INFO {nrun} EM solutions (+1 thermal); ~10 s each for a single small particle, minutes for clusters")
+        try:
+            from .mesh import estimate
+            e = estimate(cfg)
+            msgs.append(f"INFO mesh estimate: {e['elements']} elements, {e['MDOF']} M DOF, ~{e['memory_GB']} GB of "
+                        f"{e['ram_GB']} GB RAM, ~{e['s_per_solution']} s x {e['solutions']} solutions = {e['total_h']} h")
+            if not e["in_core"]:
+                msgs.append("WARN the solver will not fit in memory (out-of-core, ~100x slower): run python -m ptpipe.mesh plan")
+        except Exception as ex:
+            nrun = len(L) * len(cfg.get("pols", "1").split(","))
+            msgs.append(f"INFO {nrun} EM solutions (+1 thermal) (mesh estimate unavailable: {ex})")
     if T == "PT_Multilayer":
         L = lams(cfg.get("lams", "450:10:900")); lp = float(cfg.get("lam_profile", 540))
         for i, t in enumerate(cfg["layers"].split(",")):

@@ -256,3 +256,24 @@ def sphere_template_cluster(N, R_np, R_template, gap_min, seed=0):
             pts.append(v)
         tries += 1
     return np.array(pts)
+
+
+def compact_patch_on_sphere(N, R_np, R_template, gap, n_candidates=20000):
+    """Compact cluster of N spheres (radius R_np) adsorbed on a spherical template, grown from a
+    seed by adding each time the free site closest to the seed (minimum surface gap 'gap').
+    Models the compact AuNP clusters observed on liposomes (Cardellini et al., JACS 2025)."""
+    Rc = R_template + R_np
+    i = np.arange(n_candidates) + 0.5
+    phi = np.arccos(1 - 2 * i / n_candidates); th = np.pi * (1 + 5 ** 0.5) * i
+    cand = Rc * np.c_[np.cos(th) * np.sin(phi), np.sin(th) * np.sin(phi), np.cos(phi)]
+    seed = np.array([0, 0, Rc])
+    d_seed = np.linalg.norm(cand - seed, axis=1)
+    order = np.argsort(d_seed)
+    pts = []
+    for k in order:
+        c = cand[k]
+        if all(np.linalg.norm(c - q) >= 2 * R_np + gap for q in pts):
+            pts.append(c)
+            if len(pts) == N:
+                break
+    return np.array(pts)

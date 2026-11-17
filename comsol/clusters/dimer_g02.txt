@@ -1,0 +1,3 @@
+# x y z R (nm): Au dimer, R = 20 nm, gap = 2 nm, axis along x
+-21.0 0 0 20.0
+21.0 0 0 20.0

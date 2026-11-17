@@ -63,6 +63,8 @@ public class PT_Multilayer {
     model.param().set("n_sup", g(cfg, "n_sup", "1.0"));
     model.param().set("n_sub", g(cfg, "n_sub", "1.52"));
     model.param().set("theta", g(cfg, "theta_deg", "0") + "[deg]", "Angle of incidence (in the superstrate)");
+    model.param().set("theta_t", g(cfg, "port2_sign", "1") + "*asin(n_sup*sin(theta)/n_sub)",
+        "Angle of the transmitted wave in the substrate (Snell); the listener port must use it");
     model.param().set("w_cell", g(cfg, "w_cell", "50") + "[nm]", "Cell width (sub-wavelength: only the 0th order)");
     model.param().set("h_sup", "0.6*lam_max/n_sup", "Superstrate height above the stack");
     model.param().set("h_sub", "0.6*lam_max/n_sub", "Substrate height below the stack");
@@ -138,12 +140,44 @@ public class PT_Multilayer {
     }
     try { model.component("comp1").physics("ewfd").feature("port1").set("PortExcitation", "on"); } catch (Exception e) { log.println("WARN PortExcitation: " + e.getMessage()); }
     try { model.component("comp1").physics("ewfd").feature("port1").set("Pin", "P_in"); } catch (Exception e) { log.println("WARN Pin: " + e.getMessage()); }
-    try { model.component("comp1").physics("ewfd").feature("port1").set("alpha1_inc", "theta"); } catch (Exception e) { log.println("WARN alpha1_inc: " + e.getMessage()); }
+    // angle of incidence: in 2D COMSOL reads alpha_inc (alpha1_inc/alpha2_inc are the 3D elevation/azimuth; the 6.4
+    // property dump of mim_s45 showed alpha1_inc = theta but alpha_inc = 0, i.e. normal incidence)
+    try { model.component("comp1").physics("ewfd").feature("port1").set("alpha_inc", "theta"); } catch (Exception e) { log.println("WARN alpha_inc: " + e.getMessage()); }
+    // the listener port in the substrate carries the refracted wave: same tangential k, angle theta_t
+    // (with alpha_inc = 0 there, R and T at 45 deg matched no TMM angle: max |dR| = 0.19)
+    try { model.component("comp1").physics("ewfd").feature("port2").set("alpha_inc", "theta_t"); } catch (Exception e) { log.println("WARN port2 alpha_inc: " + e.getMessage()); }
     // mode field of the periodic ports: s = E out of plane; p = E in plane, orthogonal to k
-    String[] E0 = pol.equals("s") ? new String[]{"0", "0", "1"} : new String[]{"cos(theta)", "sin(theta)", "0"};
-    for (String pt : new String[]{"port1", "port2"}) {
-      try { model.component("comp1").physics("ewfd").feature(pt).set("E0", E0); } catch (Exception e) { log.println("WARN E0 " + pt + ": " + e.getMessage()); }
+    // mode field of the periodic ports. In COMSOL 6.4 the user-defined polarization is read from Eampl
+    // (default {t1x, t1y, t1z}: the port tangent, i.e. in-plane), not from E0: with E0 only, s and p gave
+    // identical spectra at 45 deg, and normal incidence passed by coincidence. For p the in-plane field
+    // must be orthogonal to k: (cos a, -sin a, 0) for alpha_inc = a with this geometry (verified against
+    // the TMM at 45 deg: |dR| = 2e-3; the opposite sign gives |dR| = 0.95). The angle sign of port2 does
+    // not change the result.
+    String[] pts = {"port1", "port2"}, ang = {"theta", "theta_t"};
+    String psgn = g(cfg, "p_sign", "-1");
+    for (int q = 0; q < 2; q++) {
+      String[] E0 = pol.equals("s") ? new String[]{"0", "0", "1"}
+                                    : new String[]{"cos(" + ang[q] + ")", psgn + "*sin(" + ang[q] + ")", "0"};
+      try {
+        model.component("comp1").physics("ewfd").feature(pts[q]).set("Polarization", "UserDefined");
+        model.component("comp1").physics("ewfd").feature(pts[q]).set("Eampl", E0);
+        model.component("comp1").physics("ewfd").feature(pts[q]).set("E0", E0);
+      } catch (Exception e) { log.println("WARN polarization " + pts[q] + ": " + e.getMessage()); }
+      for (String pr : new String[]{"Polarization", "LinearPol", "Eampl", "E0", "alpha_inc"}) {
+        try { log.println(pts[q] + " " + pr + " = " + String.join(", ", model.component("comp1").physics("ewfd").feature(pts[q]).getStringArray(pr))); }
+        catch (Exception e) { try { log.println(pts[q] + " " + pr + " = " + model.component("comp1").physics("ewfd").feature(pts[q]).getString(pr)); } catch (Exception e2) { } }
+      }
     }
+    // diagnostic: list the settings of the excited port (names differ between COMSOL versions)
+    try {
+      String[] pr = model.component("comp1").physics("ewfd").feature("port1").properties();
+      for (String q : pr) {
+        String v;
+        try { v = model.component("comp1").physics("ewfd").feature("port1").getString(q); } catch (Exception e) { v = "(array)"; }
+        log.println("port1 property " + q + " = " + v);
+      }
+    } catch (Exception e) { log.println("WARN port property dump: " + e.getMessage()); }
+    try { log.println("ewfd components = " + model.component("comp1").physics("ewfd").prop("components").getString("components")); } catch (Exception e) { log.println("ewfd components: n/a (" + e.getMessage() + ")"); }
     model.component("comp1").physics("ewfd").create("pc1", "PeriodicCondition", 1);
     model.component("comp1").physics("ewfd").feature("pc1").selection().named("b_lr");
     try { model.component("comp1").physics("ewfd").feature("pc1").set("PeriodicType", "Floquet"); } catch (Exception e) { log.println("WARN PeriodicType: " + e.getMessage()); }

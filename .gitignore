@@ -18,13 +18,12 @@ __pycache__/
 materials/.cache/
 
 # --- pending validation: remove a line once the case/template passes (see docs/VALIDATION.md) ---
-comsol/PT_Particle.java
-comsol/configs/sphere_R20.cfg
-comsol/configs/sphere_R20_nk.cfg
-comsol/configs/sphere_R50.cfg
-comsol/configs/rod_AR4.cfg
-comsol/configs/dimer_g*.cfg
-comsol/configs/vesicle_N12.cfg
-comsol/configs/mim_s45.cfg
-comsol/configs/mim_p45.cfg
-comsol/clusters/
+comsol/configs/dimer_g02.cfg
+comsol/configs/jacs_patch_N19_g1.cfg
+comsol/hs_err_pid*.log
+# runtime list written by run_validation.sh figures
+comsol/figures.cfg
+# diagnostic variants used to fix the oblique incidence (kept locally)
+comsol/configs/mim_s45_m.cfg
+comsol/configs/mim_p45_m.cfg
+comsol/configs/mim_*_lin.cfg

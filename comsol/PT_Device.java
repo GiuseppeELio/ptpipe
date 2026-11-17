@@ -48,14 +48,14 @@ public class PT_Device {
     model.param().set("dt_s", g(cfg, "dt_smooth", "0.05") + "[s]", "Smoothing of the on/off edges");
     model.param().set("Rd", g(cfg, "Rd_mm", "12.5") + "[mm]");
     model.param().set("d_sub", g(cfg, "d_sub_mm", "1.0") + "[mm]");
-    model.param().set("d_st", g(cfg, "d_st_nm", "230") + "[nm]");
+    model.param().set("d_st", g(cfg, "d_st_nm", "215") + "[nm]");
     model.param().set("z_top", "d_sub + d_st");
     model.param().set("k_sub", g(cfg, "k_sub", "1.38") + "[W/(m*K)]");
     model.param().set("rho_sub", g(cfg, "rho_sub", "2203") + "[kg/m^3]");
     model.param().set("cp_sub", g(cfg, "cp_sub", "703") + "[J/(kg*K)]");
     model.param().set("k_st", g(cfg, "k_st", "168.6") + "[W/(m*K)]", "Stack conductivity (thickness-weighted, in-plane)");
-    model.param().set("rho_st", g(cfg, "rho_st", "15000") + "[kg/m^3]");
-    model.param().set("cp_st", g(cfg, "cp_st", "200") + "[J/(kg*K)]");
+    model.param().set("rho_st", g(cfg, "rho_st", "11348") + "[kg/m^3]");
+    model.param().set("cp_st", g(cfg, "cp_st", "181") + "[J/(kg*K)]");
     model.param().set("h_top", g(cfg, "h_top", "10") + "[W/(m^2*K)]");
     model.param().set("h_bot", g(cfg, "h_bot", "10") + "[W/(m^2*K)]");
     model.param().set("h_edge", g(cfg, "h_edge", "10") + "[W/(m^2*K)]");
@@ -181,7 +181,9 @@ public class PT_Device {
     model.result().table("tbl_ts").save(BASE + "results/" + tag + "_timeseries.txt");
 
     double dto = model.param().evaluate("dt_out"), toff = model.param().evaluate("t_off");
-    int lev = (int) Math.round(toff / dto) + 1;
+    // last output time before the switch-off (t_off - dt_out): at t_off itself the smoothed edge is already
+    // halfway down and the top surface has cooled by ~13 K (118.6 -> 105.8 K in the mim_device run)
+    int lev = (int) Math.round(toff / dto);
     model.result().dataset().create("cln_r", "CutLine2D");
     model.result().dataset("cln_r").set("data", "dset_m");
     double zt = model.param().evaluate("z_top"), rd = model.param().evaluate("Rd");
@@ -201,6 +203,25 @@ public class PT_Device {
     model.result().export("exp_r").set("plot", "lg1");
     model.result().export("exp_r").set("filename", BASE + "results/" + tag + "_T_r.txt");
     model.result().export("exp_r").run();
+
+    // temperature map at the end of the illumination (exported before the solution is cleared): node values,
+    // Data export (a PlotGroup2D export failed in 6.4 with Unknown_property); each step logged separately
+    try {
+      model.result().export().create("exp_Tmap", "Data");
+      model.result().export("exp_Tmap").set("data", "dset_m");
+      model.result().export("exp_Tmap").setIndex("expr", "T-T_amb", 0);
+      model.result().export("exp_Tmap").setIndex("unit", "K", 0);
+      try {
+        model.result().export("exp_Tmap").set("looplevelinput", new String[]{"manual"});
+        model.result().export("exp_Tmap").set("looplevel", new int[]{lev});
+      } catch (Exception e1) {
+        log.println("T map: looplevel not accepted (" + e1.getMessage() + "), trying solnum");
+        try { model.result().export("exp_Tmap").set("solnum", new int[]{lev}); } catch (Exception e2) { log.println("WARN T map solnum: " + e2.getMessage()); }
+      }
+      model.result().export("exp_Tmap").set("filename", BASE + "results/" + tag + "_T_map.txt");
+      model.result().export("exp_Tmap").run();
+      log.println("T map exported at output level " + lev);
+    } catch (Exception ex) { log.println("WARN T map export: " + ex.getMessage()); }
 
     model.result().create("pg_T", "PlotGroup2D");
     model.result("pg_T").set("data", "dset_m");

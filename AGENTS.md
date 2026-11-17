@@ -27,7 +27,7 @@ If a gate fails, report the failure and its probable cause, not the number.
 | `comsol/clusters/*.txt` | particle coordinates `x y z R` (nm) |
 | `comsol/run_validation.sh` | compiles the templates and runs `comsol batch` for the listed cases |
 | `materials/*.txt` | optical constants `lambda_nm n k` with source/reference in the header |
-| `ptpipe/` | independent Python references (`optics`, `thermal`, `bridge`), `case` (check/preview), `rii` (refractiveindex.info) |
+| `ptpipe/` | independent Python references (`optics`, `thermal`, `bridge`), `case` (check/preview), `rii` (refractiveindex.info), `mesh` (resource-aware mesh planning) |
 | `validation/validate.py` | compares every COMSOL output with its reference -> `results/validation/summary.md` |
 | `benchmarks/` | verification of the Python layer itself (V1-V7) |
 | `results/` | all outputs (not versioned) |
@@ -95,11 +95,50 @@ fix the setup before spending time on the real case.
 - `python -m ptpipe.case preview <case>`: note what the references predict (peak, dT, A).
   You will compare COMSOL with it.
 
+### 5b. Plan the mesh for the machine (PT_Particle cases)
+
+Never guess mesh sizes and never let a run spill out of memory (out-of-core runs are ~100x slower:
+a 2 nm dimer took 40 min per wavelength instead of 40 s). Instead:
+
+```bash
+python -m ptpipe.mesh plan <case> --ram <GB of the COMSOL machine> --apply
+```
+
+The planner estimates elements, DOFs, memory and time from the local mesh density (cost model
+calibrated on real runs; `python -m ptpipe.mesh calibrate` refits it on the runs of the user's
+machine) and writes into the case file the most accurate mesh whose expected memory fits in 60 %
+of the RAM (upper estimate within 70 %), so that the computer stays usable and the solver never
+goes out of core. Accuracy is ranked, and relaxed only in this order: interior size (R/4 -> R/3), growth
+rate (1.4 -> 1.6), elements per wavelength (8 -> 6), surface size (R/6 -> R/4), gap resolution
+(3 -> 2 elements across). Gaps narrower than R/2 are resolved inside small spheres around each
+gap (`h_gap`) or on the whole surface, whichever is cheaper. If even the floor does not fit,
+the planner says so: tell the user the memory needed and the options (symmetry plane, fewer
+particles, a larger machine, coupled-dipole twin only). Never go below the floors to make it fit.
+
+After the planned run, confirm convergence with a cheap coarse probe:
+
+```bash
+python -m ptpipe.mesh conv <case>       # writes <case>_cA: all sizes x1.3, 3 wavelengths at the peak
+# run <case>_cA, then
+python -m ptpipe.mesh compare <case>    # converged if coarse and planned differ by <= 1 %
+```
+
+Report the plan (sizes, estimated memory and time) to the user before a long run, and the
+convergence verdict with the results. If the user wants to keep working on the computer during
+a run longer than ~15 min, propose leaving cores free: `bash run_validation.sh --cores 6 <case>`
+(slower, but the machine stays responsive and quieter); the fan running at full speed during a
+run is normal.
+
 ### 6. Run
 
 ```bash
 cd comsol && bash run_validation.sh <case1> <case2> ...
+cd comsol && bash run_validation.sh --cores 6 <case1> ...   # leave cores free for the user
 ```
+
+The template is recognised from the keys of the case file (`shape`/`cluster_file` -> PT_Particle,
+`layers` -> PT_Multilayer, `A_abs` -> PT_Device, or an explicit `template = ...`), so any case
+name works.
 
 The script writes the repository path into the templates, compiles once per template, copies
 `configs/<case>.cfg` to the active configuration and runs `comsol batch`. Per case it writes
@@ -109,8 +148,9 @@ The script writes the repository path into the templates, compiles once per temp
 If you cannot execute commands on the machine where COMSOL is installed, give the user the exact
 command, then read the outputs when they tell you it has finished.
 
-Typical times on a desktop: single particle ~10 s per wavelength; stack < 1 s per wavelength;
-device ~1 min; a 12-particle cluster several minutes per wavelength.
+Typical times on a desktop (Apple M4, 16 GB): single particle ~10-20 s per wavelength; stack
+< 1 s per wavelength; device ~2 min; a 12-particle cluster ~35 s per wavelength. For any
+PT_Particle case `python -m ptpipe.mesh estimate <case>` gives the expected memory and time.
 
 ### 7. Validate
 

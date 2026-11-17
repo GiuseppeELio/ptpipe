@@ -23,7 +23,7 @@ the reference against which every COMSOL result is checked automatically.
 
 | Level | COMSOL template | Independent reference (`ptpipe`) | Verification gate |
 |---|---|---|---|
-| L1 particle | `PT_Particle` (sphere, prolate spheroid/rod, cluster from file; scattered field + PML) — *validation in progress* | Mie theory; MLWA for spheroids | σ_abs, σ_sca vs Mie (≤ 2 %) |
+| L1 particle | `PT_Particle` (sphere, prolate spheroid/rod, cluster from file; scattered field + PML) | Mie theory; MLWA for spheroids | σ_abs, σ_sca vs Mie (≤ 2 %) |
 | L2 stack / cell | `PT_Multilayer` (unit cell, Floquet + periodic ports) | transfer matrix, s/p, any angle | R, T (≤ 0.01); ∫Q_h vs 1−R−T |
 | L2 cluster | `PT_Particle` (shape = cluster) | coupled dipoles with Mie a₁ polarizability | validity limit vs gap |
 | L3 particle heat | `PT_Particle` (Heat Transfer, same model) | σI/(4πκR); exact prolate spheroid; superposition | ΔT (≤ 2 %) |
@@ -41,6 +41,8 @@ ptpipe is designed to be driven by an agent such as Claude:
 3. The agent follows `AGENTS.md`:
    - it chooses the material data (refractiveindex.info);
    - it writes the case files and runs an exact "reference twin" first;
+   - it plans the mesh for *your* machine: the finest mesh that meets the accuracy rules and fits
+     in memory (no out-of-core runs), then confirms convergence with a cheap coarse probe;
    - it launches COMSOL, validates every result against the independent references;
    - it reports values together with their verification table and limits.
 
@@ -87,6 +89,23 @@ I_phys_Wcm2 = 1e5
 All keys: [`docs/CONFIGS.md`](docs/CONFIGS.md). Check a case before running it with
 `python -m ptpipe.case check <case>`; `python -m ptpipe.case preview <case>` shows what the references predict.
 
+### Mesh planning for your machine
+
+```bash
+python -m ptpipe.mesh estimate dimer_g02_gap            # elements, DOFs, memory and time before running
+python -m ptpipe.mesh plan dimer_g02_gap --ram 16 --apply # most accurate mesh within 60 % of 16 GB
+python -m ptpipe.mesh conv dimer_g02_gap                # coarse probe (sizes x1.3) at the resonance
+python -m ptpipe.mesh compare dimer_g02_gap             # converged if within 1 % of the planned run
+python -m ptpipe.mesh calibrate                     # refit the cost model on your own runs
+```
+
+Narrow gaps are resolved locally (small spheres around each gap) instead of refining every
+surface: for a 40 nm Au dimer with a 2 nm gap this brings the run from 1.57 M elements (out of
+core, ~40 min per wavelength on 16 GB) to 0.55 M elements (10 GB, in core, ~2 min per wavelength)
+with three elements across the gap, and the same cross section within 0.01 %. Long runs can leave
+cores free for other work: `bash run_validation.sh --cores 6 <case>`. The rules and the order in which they are relaxed are in
+[`ptpipe/mesh.py`](ptpipe/mesh.py) and [`AGENTS.md`](AGENTS.md).
+
 Clusters are read from `comsol/clusters/*.txt` (`x y z R` in nm per line). Generate them with
 `ptpipe.thermal.sphere_template_cluster` or from experimental coordinates. Stacks are given as
 `layers = Au:15, 1.45:100, Au:100` (top → bottom).
@@ -113,6 +132,7 @@ and SiO2 (Malitson) are included.
 - `ptpipe.bridge`: Gaussian beam, on/off window, monolayer and dispersion absorbance, heat sources from optical profiles.
 - `ptpipe.case`: case-file schema, `check`, `preview`, `docs`.
 - `ptpipe.rii`: search and convert refractiveindex.info data sets.
+- `ptpipe.mesh`: resource-aware mesh planning (cost model, accuracy rules, convergence probe, calibration).
 - `ptpipe.thermal`: analytic limits (sphere, prolate spheroid, Gaussian source, uniform square), ensemble superposition, Baffou's ζ, axisymmetric finite-volume solver with energy budget, one- and two-time-constant fits.
 
 ## Requirements
