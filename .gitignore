@@ -27,3 +27,5 @@ comsol/figures.cfg
 comsol/configs/mim_s45_m.cfg
 comsol/configs/mim_p45_m.cfg
 comsol/configs/mim_*_lin.cfg
+comsol/configs/ag25_solver*.cfg
+comsol/configs/ag25_water.cfg

@@ -396,6 +396,17 @@ public class PT_Particle {
     model.study("std1").feature("freq").set("plist", "c_const/lam0");
     model.study("std1").feature("freq").setEntry("activate", "ht", false);
     model.sol().create("sol1"); model.sol("sol1").study("std1"); model.sol("sol1").attach("std1"); model.sol("sol1").createAutoSequence("std1");
+    // linear solver: COMSOL's default for this physics is iterative (Krylov + geometric multigrid), fast and
+    // light for lossy metals (13-15 iterations for Au). For weakly damped metals near Re(eps) = -eps_m (Ag in
+    // the near UV, Al) it can diverge (B2 benchmark: 528 iterations at 350 nm, divergence after 10,000 at
+    // 355 nm). solver = auto (default): iterative with a cap on the iterations, switched to the direct solver
+    // at the first failure and kept direct afterwards; solver = direct | iterative forces one of the two.
+    String solverMode = g(cfg, "solver", "auto");
+    String maxIt = g(cfg, "max_lin_iter", "1000");
+    describeSolver(model, "sol1", log);
+    capIterations(model, "sol1", maxIt, log);
+    boolean direct = solverMode.equals("direct");
+    if (direct) useDirect(model, "sol1", log);
     // thermal study = two steps in ONE study (frequency domain -> stationary heat): the second step
     // inherits the full EM solution. A separate stationary study pointing to std1 only received the
     // background field (heat source ~1/|E_in/E0|^2 too small), see AGENTS.md.
@@ -420,7 +431,7 @@ public class PT_Particle {
         model.param().set("pol", String.valueOf(p));
         model.param().set("lam0", L + "[nm]");
         long t0 = System.currentTimeMillis();
-        model.sol("sol1").runAll();
+        direct = runWithFallback(model, "sol1", direct, solverMode, L, log);
         double[] v = evalSafe(model, new String[]{"sig_abs", "sig_sca"}, new String[]{"nm^2", "nm^2"}, log);
         sp.printf(Locale.US, "%8.2f %3d %14.6e %14.6e %14.6e%n", L, p, v[0], v[1], v[0] + v[1]);
         sp.flush();
@@ -432,7 +443,7 @@ public class PT_Particle {
     // ---- 2) field and heat at lam_heat, pol_heat
     model.param().set("pol", String.valueOf(polHeat));
     model.param().set("lam0", lamHeat + "[nm]");
-    model.sol("sol1").runAll();
+    direct = runWithFallback(model, "sol1", direct, solverMode, lamHeat, log);
     double rEM = model.param().evaluate("r_EM") * 1e9;
     model.result().dataset().create("cl_x", "CutLine3D");
     model.result().dataset("cl_x").set("data", "dset_em");
@@ -444,7 +455,10 @@ public class PT_Particle {
     model.result().export("ex_E").set("filename", BASE + "results/" + tag + "_E2_xline.txt");
     model.result().export("ex_E").run();
 
-    sol(model, "sol2", "std2");
+    model.sol().create("sol2"); model.sol("sol2").study("std2"); model.sol("sol2").attach("std2"); model.sol("sol2").createAutoSequence("std2");
+    capIterations(model, "sol2", maxIt, log);
+    if (direct) useDirect(model, "sol2", log);
+    runWithFallback(model, "sol2", direct, solverMode, lamHeat, log);
     model.result().dataset().create("dset_ht", "Solution");
     model.result().dataset("dset_ht").set("solution", "sol2");
     model.result().numerical("gev").set("data", "dset_em");
@@ -539,6 +553,52 @@ public class PT_Particle {
     m.component("comp1").mesh("mesh1").feature("ftet1").feature(tag).set("custom", "on");
     m.component("comp1").mesh("mesh1").feature("ftet1").feature(tag).set("hmaxactive", true);
     m.component("comp1").mesh("mesh1").feature("ftet1").feature(tag).set("hmax", hmax);
+  }
+  // ---------------------------------------------------------------- linear solver helpers
+  static String[] solverChildren(Model m, String sol) {
+    try { return m.sol(sol).feature("s1").feature().tags(); } catch (Exception e) { return new String[0]; }
+  }
+  static void describeSolver(Model m, String sol, PrintWriter log) {
+    for (String t : solverChildren(m, sol)) {
+      try { log.println("solver " + sol + "/s1/" + t + ": " + m.sol(sol).feature("s1").feature(t).getType() + (m.sol(sol).feature("s1").feature(t).isActive() ? " (active)" : "")); }
+      catch (Exception e) { }
+    }
+  }
+  static void capIterations(Model m, String sol, String maxIt, PrintWriter log) {
+    for (String t : solverChildren(m, sol)) {
+      try {
+        if (m.sol(sol).feature("s1").feature(t).getType().equals("Iterative")) {
+          m.sol(sol).feature("s1").feature(t).set("maxlinit", maxIt);
+          log.println("solver " + sol + ": iterative " + t + " capped at " + maxIt + " iterations");
+        }
+      } catch (Exception e) { log.println("WARN cap iterations " + t + ": " + e.getMessage()); }
+    }
+  }
+  static void useDirect(Model m, String sol, PrintWriter log) {
+    String d = null;
+    for (String t : solverChildren(m, sol)) {
+      try { if (m.sol(sol).feature("s1").feature(t).getType().equals("Direct")) d = t; } catch (Exception e) { }
+    }
+    try {
+      if (d == null) { d = "dPT"; m.sol(sol).feature("s1").create(d, "Direct"); }
+      try { m.sol(sol).feature("s1").feature(d).set("linsolver", "pardiso"); } catch (Exception e) { }
+      for (String t : solverChildren(m, sol)) {
+        try { if (m.sol(sol).feature("s1").feature(t).getType().equals("Iterative")) m.sol(sol).feature("s1").feature(t).active(false); } catch (Exception e) { }
+      }
+      m.sol(sol).feature("s1").feature(d).active(true);
+      log.println("solver " + sol + ": direct (" + d + ") active");
+    } catch (Exception e) { log.println("WARN direct solver " + sol + ": " + e.getMessage()); }
+  }
+  static boolean runWithFallback(Model m, String sol, boolean direct, String mode, double lam, PrintWriter log) {
+    try { m.sol(sol).runAll(); return direct; }
+    catch (Exception e) {
+      if (direct || !mode.equals("auto")) throw new RuntimeException(e);
+      log.printf(Locale.US, "WARN iterative solver failed at %.1f nm (%s): switching to the direct solver%n", lam, String.valueOf(e.getMessage()).split("\n")[0]);
+      useDirect(m, sol, log);
+      if (sol.equals("sol1")) { try { useDirect(m, "sol2", log); } catch (Exception e2) { } }
+      m.sol(sol).runAll();
+      return true;
+    }
   }
   static void sol(Model m, String s, String std) {
     m.sol().create(s); m.sol(s).study(std); m.sol(s).attach(std); m.sol(s).createAutoSequence(std); m.sol(s).runAll();

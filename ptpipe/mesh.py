@@ -4,6 +4,8 @@
     python -m ptpipe.mesh plan <case> [--ram 16] [--budget 0.6] [--apply]  # finest mesh that fits the machine
     python -m ptpipe.mesh conv <case> [--lams 560,600,640] # coarse probes <case>_cA (sizes x1.3) and _cB (x1.6)
     python -m ptpipe.mesh compare <case>                  # monotone, within 1 %, Richardson error estimate
+    python -m ptpipe.mesh bands <case> [--ratio 1.3]       # split a wide spectrum into bands, each planned
+    python -m ptpipe.mesh merge <case>                    # join the band spectra into <case>_spectra.txt
     python -m ptpipe.mesh calibrate                       # refit the cost model on the runs in results/
 
 Accuracy rules, most accurate first: 3 elements across every gap narrower than R/2 (floor: 2), placed
@@ -283,6 +285,71 @@ def compare(case, tol=0.01, factors=(1.3, 1.6)):
     return res
 
 
+# ---------------------------------------------------------------- spectral bands
+def split_lams(L, ratio=1.3):
+    """Split the wavelength grid into contiguous bands with lam_max/lam_min <= ratio."""
+    L = np.sort(np.asarray(L, float)); out, cur = [], [L[0]]
+    for l in L[1:]:
+        if l / cur[0] > ratio:
+            out.append(cur); cur = [l]
+        else:
+            cur.append(l)
+    out.append(cur)
+    return out
+
+
+def bands(case, ratio=1.3, ram=None, budget=0.6):
+    """Write <case>_b1, _b2, ... with the same physics and each band's own domain and planned mesh.
+    The EM domain (PML and integration sphere) is sized on the longest wavelength and the mesh on the
+    shortest: one case over a wide spectrum pays both. Splitting cuts the cost and keeps the iterative
+    solver in its regime (Ag, R = 25 nm, 355 nm: 41 s with a domain for 405 nm, divergence with one for 700 nm)."""
+    cfg = read(case); L = lams(cfg.get("lams", "450:10:700")); B = split_lams(L, ratio)
+    lh = float(cfg.get("lam_heat", L[0])); names = []
+    if len(B) == 1:
+        return []
+    for k, b in enumerate(B, 1):
+        name = f"{case}_b{k}"
+        lines = [l for l in open(path_of(case)).read().splitlines()
+                 if l.split("=")[0].strip() not in ("tag", "lams", "lam_heat", "h_np", "h_surf", "h_gap", "el_per_lambda", "hgrad")
+                 and not l.startswith("# mesh planned")]
+        heat = lh if b[0] <= lh <= b[-1] else b[len(b) // 2]
+        lines = [l for l in lines if not l.startswith("# ")]
+        lines = [f"# band {k}/{len(B)} of {case}: {b[0]:g}-{b[-1]:g} nm (merge with python -m ptpipe.mesh merge {case})",
+                 f"tag = {name}"] + lines + ["lams = " + ",".join(f"{x:g}" for x in b), f"lam_heat = {heat:g}"]
+        open(path_of(name), "w").write("\n".join(lines) + "\n")
+        p = plan(name, ram, budget)
+        if p["fits"]:
+            apply(name, p["choice"], p["ram_GB"])
+        names.append((name, b[0], b[-1], p["estimate"], p["fits"]))
+    return names
+
+
+def merge(case):
+    """Concatenate the spectra of the bands into results/<case>_spectra.txt (the thermal run of the band
+    containing lam_heat is the one to report)."""
+    k, rows = 1, []
+    while os.path.exists(os.path.join(RES, f"{case}_b{k}_spectra.txt")):
+        rows.append(_load(os.path.join(RES, f"{case}_b{k}_spectra.txt"))); k += 1
+    if not rows:
+        return dict(case=case, error="no band spectra")
+    S = np.vstack(rows); S = S[np.lexsort((S[:, 0], S[:, 1]))]
+    np.savetxt(os.path.join(RES, f"{case}_spectra.txt"), S, fmt=["%8.2f", "%3d", "%14.6e", "%14.6e", "%14.6e"],
+               header="lambda_nm  pol  sig_abs_nm2  sig_sca_nm2  sig_ext_nm2 (merged from bands)", comments="% ")
+    # thermal outputs from the band that contains lam_heat
+    import shutil
+    lh = float(read(case).get("lam_heat", S[0, 0])); hb = None
+    for j in range(1, k):
+        bl = lams(read(f"{case}_b{j}")["lams"])
+        if bl.min() <= lh <= bl.max():
+            hb = j
+    if hb:
+        for suf in ("_thermal.txt", "_particles.txt", "_E2_xline.txt", "_T_xline.txt"):
+            f = os.path.join(RES, f"{case}_b{hb}{suf}")
+            if os.path.exists(f):
+                shutil.copy(f, os.path.join(RES, f"{case}{suf}"))
+    return dict(case=case, bands=k - 1, points=len(S), thermal_from=f"{case}_b{hb}" if hb else None)
+
+
 # ---------------------------------------------------------------- calibration on the runs of this machine
 def calibrate():
     rows = []
@@ -318,11 +385,11 @@ def calibrate():
 
 
 def main(argv):
-    if not argv or argv[0] not in ("estimate", "plan", "conv", "compare", "calibrate"):
+    if not argv or argv[0] not in ("estimate", "plan", "conv", "compare", "calibrate", "bands", "merge"):
         print(__doc__); return 1
     ram = float(argv[argv.index("--ram") + 1]) if "--ram" in argv else None
     budget = float(argv[argv.index("--budget") + 1]) if "--budget" in argv else 0.6
-    skip = {argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("--ram", "--lams", "--budget")}
+    skip = {argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("--ram", "--lams", "--budget", "--ratio")}
     cases = [a for a in argv[1:] if not a.startswith("--") and a not in skip]
     if argv[0] == "calibrate":
         print(json.dumps(calibrate(), indent=1)); return 0
@@ -339,6 +406,12 @@ def main(argv):
                 print(name, e)
         elif argv[0] == "compare":
             print(compare(c))
+        elif argv[0] == "bands":
+            r = float(argv[argv.index("--ratio") + 1]) if "--ratio" in argv else 1.3
+            for n, a, b, e, ok in bands(c, r, ram, budget):
+                print(n, f"{a:g}-{b:g} nm", e, "" if ok else "DOES NOT FIT")
+        elif argv[0] == "merge":
+            print(merge(c))
     return 0
 
 

@@ -96,6 +96,8 @@ python -m ptpipe.mesh estimate dimer_g02_gap            # elements, DOFs, memory
 python -m ptpipe.mesh plan dimer_g02_gap --ram 16 --apply # most accurate mesh within 60 % of 16 GB
 python -m ptpipe.mesh conv dimer_g02_gap                # coarse probe (sizes x1.3) at the resonance
 python -m ptpipe.mesh compare dimer_g02_gap             # converged if within 1 % of the planned run
+python -m ptpipe.mesh bands ag25_full                # split a wide spectrum into bands (own domain and mesh)
+python -m ptpipe.mesh merge ag25_full                # join the band spectra before validating
 python -m ptpipe.mesh calibrate                     # refit the cost model on your own runs
 ```
 

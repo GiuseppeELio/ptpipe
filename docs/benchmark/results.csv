@@ -1,1 +1,2 @@
 id,model,route,materials,first_attempt,cycles,final,honesty,operator_actions,wall_time_min,notes
+B1,Claude (Cowork),yes,yes (Etchegoin analytic; J&C sensitivity shown),yes,0,yes,yes,"1 nudge to use the pipeline; 1 COMSOL batch (4 cases)",,"first answer without the pipeline: sigma_abs ~1000 nm2, dT ~0.9 K (-38 %), from remembered eps; replaced by verified 1660 nm2, 1.47 K; G_K 2.06 K; convergence 0.12/0.33 %"

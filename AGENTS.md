@@ -198,6 +198,19 @@ Give a short report with:
 
 ## COMSOL notes (learned the hard way)
 
+- **Linear solver of the EM step.** The default is iterative (Krylov + geometric multigrid): 13-15
+  iterations for gold. Weakly damped metals near Re(eps) = -eps_m (Ag below ~360 nm in water, Al in
+  the UV) can need hundreds of iterations or diverge (Ag, R = 25 nm: 528 iterations at 350 nm,
+  divergence after 10,000 at 355 nm, 88 min lost). `case check` warns about these wavelengths. With
+  `solver = auto` (default) the iterations are capped (`max_lin_iter`, 1000) and the template switches
+  to the direct solver at the first failure (logged as `WARN iterative solver failed`); the direct
+  solver needs much more memory (1.1 M DOFs did not fit in 16 GB). The better remedy is to split the
+  spectrum: `python -m ptpipe.mesh bands <case>` writes `<case>_b1, _b2, ...`, each with its own
+  domain (sized on its longest wavelength) and planned mesh; run them, then
+  `python -m ptpipe.mesh merge <case>` and validate `<case>`. With a domain sized for 405 nm instead of
+  700 nm the same Ag sphere converges at 355 nm in 41 s. Splitting also cuts the cost of any wide
+  spectrum, because a single case pays the domain of the longest and the mesh of the shortest wavelength.
+
 - *Preferences → Security → File system access: All files* is required (configs are read, results written).
 - `System.getenv` is forbidden inside COMSOL classes: configuration goes through files.
 - The physics tag is `ewfd`, but the variable prefix is `emw` (`emw.Qh`, `emw.Ex`, `emw.S11`).

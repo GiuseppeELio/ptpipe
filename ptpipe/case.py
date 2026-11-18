@@ -44,6 +44,8 @@ SCHEMA = {
         "h_gap": ("float", None, "mesh size inside local spheres around each narrow gap (nm); set by ptpipe.mesh plan (gap/3)"),
         "gap_ref": ("float", None, "gaps <= gap_ref (nm) get a gap sphere when h_gap is set; default R_min/2"),
         "gap_ball": ("float", 1.5, "gap sphere radius = gap/2 + gap_ball*sqrt(R_eff*gap) (capped at 0.8 R_eff)"),
+        "solver": ("str", "auto", "linear solver of the EM step: auto (iterative, direct at the first failure), iterative, direct"),
+        "max_lin_iter": ("int", 1000, "cap on the iterations of the iterative solver before the fallback"),
         "hgrad": ("float", 1.4, "maximum growth rate of the mesh (1.4 standard; 1.6 when memory is short)"),
         "em_margin": ("float", 0.35, "distance between the integration sphere and the PML, in units of lam_max/n_m"),
         "pml_lambda": ("float", 0.4, "PML thickness in units of lam_max/n_m"),
@@ -220,8 +222,27 @@ def check(case):
         w0 = float(cfg.get("w0_mm", .5)); R = float(cfg.get("Rd_mm", 12.5)); nr = int(cfg.get("n_r", 250))
         if R / nr > w0 / 8:
             msgs.append(f"WARN radial element {R/nr*1e3:.0f} um > w0/8: increase n_r")
+    if T == "PT_Particle":
+        _check_weak_damping(cfg, msgs)
     _check_temperature(case, cfg, T, msgs)
     return T, msgs
+
+
+def _check_weak_damping(cfg, msgs):
+    """Weakly damped metal near the planar surface-plasmon condition Re(eps) = -eps_m: the default iterative
+    solver of the EM step may need hundreds of iterations or diverge (Ag below ~360 nm in water)."""
+    from .materials import material_eps
+    try:
+        L = lams(cfg.get("lams", "450:10:700")); e = material_eps(cfg.get("material", "Au"), ROOT)(L)
+    except Exception:
+        return
+    em = float(cfg.get("n_m", 1.33)) ** 2
+    bad = L[(abs(e.real + em) < 1.0) & (e.imag < 1.0)]
+    if len(bad):
+        msgs.append(f"WARN weakly damped metal near Re(eps) = -eps_m at {bad.min():.0f}-{bad.max():.0f} nm: the iterative "
+                    "solver may diverge; with solver = auto the template switches to the direct solver, which needs more memory: "
+                    "plan the mesh with a lower --budget, e.g. 0.35. Better: split the spectrum, python -m ptpipe.mesh bands <case> "
+                    "(each band gets its own domain; the iterative solver converges again)")
 
 
 def _check_temperature(case, cfg, T, msgs):
