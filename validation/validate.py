@@ -80,6 +80,10 @@ def particle(case, cfg):
     fig, ax = plt.subplots(1, 2, figsize=(7.4, 2.9))
     lam_h, pol_h, I_wcm2, P, dTmax, sabs_h, Rth, k = th
     if shape in ("sphere", "rod"):
+        # the references are for one polarization: pol 1 (E along x, i.e. along the long axis of a rod);
+        # other polarizations in the same case are not compared (benchmark B3: err ~100 % when mixed)
+        if (sp[:, 1] == 1).any():
+            sp = sp[sp[:, 1] == 1]
         lam = sp[:, 0]; e = material_eps(cfg.get("material", "Au"), ROOT)(lam)
         if shape == "sphere":
             R = float(cfg["R_np"]); ref = mie(lam, R, e, nm); lab = "Mie"

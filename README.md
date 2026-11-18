@@ -35,7 +35,12 @@ ptpipe is designed to be driven by an agent such as Claude:
 
 1. Open this repository as a project/workspace in your agent (Claude Code, Claude Cowork or any
    agent that reads `AGENTS.md`). Give it access to a machine with COMSOL, or run the commands it gives you.
-2. Start a session by **describing your situation**, for example:
+2. Start the session with **one line that points the agent to the pipeline** (without it, the agent
+   may answer from memory, with no verification), then **describe your situation**:
+   ```
+   Use the ptpipe pipeline in the connected folder (follow AGENTS.md).
+   ```
+   for example:
    *"40 nm Au nanoparticles in water, monolayer on glass with 100 nm pitch, 532 nm CW laser,
    200 mW, 1 mm spot; I measure 35 K with an IR camera. Is it consistent?"*
 3. The agent follows `AGENTS.md`:

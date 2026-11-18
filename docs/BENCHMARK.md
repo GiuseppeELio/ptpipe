@@ -5,6 +5,12 @@ results? Each prompt below is given **verbatim** to the agent in a **new session
 repository (no other context). The operator only runs the COMSOL commands the agent asks for (or the
 agent runs them itself if it can reach the COMSOL machine) and answers questions the agent asks.
 
+Every session starts with the line `Use the ptpipe pipeline in the connected folder (follow AGENTS.md).`
+followed by the prompt. Use a fresh clone **without this file** (it contains the expected routes).
+
+Status: B1-B3 run on 17-18 November 2026 (Claude, Cowork; results in `docs/benchmark/results.csv`);
+B4-B10 open.
+
 ## Prompts (increasing complexity)
 
 | # | Prompt | What it tests | Expected route |
