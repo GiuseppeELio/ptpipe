@@ -1,7 +1,12 @@
 # ptpipe — an agentic thermoplasmonics pipeline, verified from near field to device temperature
 
+[![Preprint](https://img.shields.io/badge/Preprints.org-202611.2845-blue)](https://www.preprints.org/manuscript/202611.2845)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24466619.svg)](https://doi.org/10.5281/zenodo.24466619)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Companion code of *Optical-to-Thermal Pipeline for Multifunctional Plasmonic Metasurfaces:
-An AI-Agent Workflow from Multilayers to Three-Dimensional Nanoparticle Clusters* (in preparation).
+An AI-Agent Workflow from Multilayers to Three-Dimensional Nanoparticle Clusters*
+([preprint on Preprints.org](https://www.preprints.org/manuscript/202611.2845)).
 
 ptpipe is a verified **optical → thermal pipeline** for plasmonic nanoparticles, rods,
 nanoparticle clusters, multilayers and metasurfaces. Full-wave **COMSOL Multiphysics** models
@@ -154,7 +159,39 @@ Templates and cases are published here only after they pass; the Python layer is
 
 ## How to cite
 
-A paper describing the pipeline is in preparation; citation details will be added here.
+If you use ptpipe, please cite the paper and the software release you used.
+
+**Paper (preprint)**
+G. E. Lio, *Optical-to-Thermal Pipeline for Multifunctional Plasmonic Metasurfaces: An AI-Agent Workflow
+from Multilayers to Three-Dimensional Nanoparticle Clusters*, Preprints 2026, 202611.2845.
+https://doi.org/10.20944/preprints202611.2845.v1
+
+**Software**
+G. E. Lio, *ptpipe: an agentic thermoplasmonics pipeline, verified from near field to device temperature*,
+version 1.0.1, Zenodo (2026). https://doi.org/10.5281/zenodo.24466619
+
+```bibtex
+@article{Lio2026ptpipe,
+  author  = {Lio, Giuseppe Emanuele},
+  title   = {Optical-to-Thermal Pipeline for Multifunctional Plasmonic Metasurfaces: An AI-Agent Workflow from Multilayers to Three-Dimensional Nanoparticle Clusters},
+  journal = {Preprints},
+  year    = {2026},
+  pages   = {202611.2845},
+  doi     = {10.20944/preprints202611.2845.v1}
+}
+
+@software{ptpipe,
+  author    = {Lio, Giuseppe Emanuele},
+  title     = {ptpipe: an agentic thermoplasmonics pipeline, verified from near field to device temperature},
+  version   = {1.0.1},
+  publisher = {Zenodo},
+  year      = {2026},
+  doi       = {10.5281/zenodo.24466619},
+  url       = {https://github.com/GiuseppeELio/ptpipe}
+}
+```
+
+GitHub also offers these references through *Cite this repository* (file `CITATION.cff`).
 
 ## License
 

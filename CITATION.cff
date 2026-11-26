@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper and the software release."
+title: "ptpipe: an agentic thermoplasmonics pipeline, verified from near field to device temperature"
+type: software
+authors:
+  - family-names: Lio
+    given-names: Giuseppe Emanuele
+    affiliation: "Department of Physics E. Fermi, University of Pisa"
+version: 1.0.1
+doi: 10.5281/zenodo.24466619
+date-released: 2026-11-23
+license: MIT
+repository-code: "https://github.com/GiuseppeELio/ptpipe"
+keywords:
+  - thermoplasmonics
+  - photothermal conversion
+  - COMSOL Multiphysics
+  - finite element method
+  - AI agents
+  - verification
+preferred-citation:
+  type: article
+  title: "Optical-to-Thermal Pipeline for Multifunctional Plasmonic Metasurfaces: An AI-Agent Workflow from Multilayers to Three-Dimensional Nanoparticle Clusters"
+  authors:
+    - family-names: Lio
+      given-names: Giuseppe Emanuele
+      affiliation: "Department of Physics E. Fermi, University of Pisa"
+  journal: "Preprints"
+  year: 2026
+  doi: 10.20944/preprints202611.2845.v1
+  url: "https://www.preprints.org/manuscript/202611.2845"
